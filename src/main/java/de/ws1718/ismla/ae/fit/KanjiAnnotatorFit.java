@@ -17,23 +17,23 @@ import de.ws1718.ismla.types.Compound;
 public class KanjiAnnotatorFit extends JCasAnnotator_ImplBase {
 
 	public static final String PARAM_LANGUAGE = "language";
-	@ConfigurationParameter(name = "PARAM_LANGUAGE", defaultValue = "cmn")
+	@ConfigurationParameter(name = PARAM_LANGUAGE, defaultValue = "en")
 	private String language;
 
 	public static final String PARAM_CHAR_FREQ_LIST = "path2charFreqList";
-	@ConfigurationParameter(name = "PARAM_CHAR_FREQ_LIST", defaultValue = "opensubtitles-freq-chars-cmn.tsv")
+	@ConfigurationParameter(name = PARAM_CHAR_FREQ_LIST, defaultValue = "")
 	private String path2charFreqList;
 
 	public static final String PARAM_TOKEN_FREQ_LIST = "path2tokenFreqList";
-	@ConfigurationParameter(name = "PARAM_TOKEN_FREQ_LIST", defaultValue = "opensubtitles-freq-tokens-cmn.tsv")
+	@ConfigurationParameter(name = PARAM_TOKEN_FREQ_LIST, defaultValue = "")
 	private String path2tokenFreqList;
 
 	public static final String PARAM_RANK_THRESHOLD = "threshold";
-	@ConfigurationParameter(name = "PARAM_RANK_THRESHOLD", defaultValue = "500")
+	@ConfigurationParameter(name = PARAM_RANK_THRESHOLD, defaultValue = "0")
 	private int threshold;
 
 	public static final String PARAM_GREEDY_COMPOUNT_SIZE = "compoundSize";
-	@ConfigurationParameter(name = "PARAM_GREEDY_COMPOUNT_SIZE", defaultValue = "2")
+	@ConfigurationParameter(name = PARAM_GREEDY_COMPOUNT_SIZE, defaultValue = "1")
 	private int compoundSize;
 
 	private FrequencyDictionary freqDict;
@@ -75,13 +75,14 @@ public class KanjiAnnotatorFit extends JCasAnnotator_ImplBase {
 					}
 					
 					if (!(entry == null) && entry.rank >= threshold) {
+						
 						Compound c = new Compound(jcas);
 						c.setBegin(i);
 						c.setEnd(end);
 						c.setRank(entry.rank);
 						c.addToIndexes(jcas);
 						
-						//without overlap ???
+						//no overlapping
 						i += compoundSize-1;
 					}
 				}
