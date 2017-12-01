@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 
+import org.apache.commons.lang.WordUtils;
 import org.apache.uima.UIMAException;
 import org.apache.uima.analysis_engine.AnalysisEngineDescription;
 import org.apache.uima.cas.text.Language;
@@ -40,6 +41,7 @@ public class Main {
 		String[] languages = { CHINESE, JAPANESE };
 
 		runPipeline(languages, 1);
+
 	}
 
 	/**
@@ -52,17 +54,11 @@ public class Main {
 		int thresholdK = 0;
 		int thresholdM = 0;
 
-		for (int k = 0; k < 2000; k += 100) {
-			for (int m = 0; m < 2000; m += 100) {
-				
+		for (int k = 0; k <= 2000; k += 100) {
+			for (int m = 0; m <= 2000; m += 100) {
+
 				System.out.println("threshold k : " + k);
 				System.out.println("threshold m : " + m);
-
-				HashMap<String, ArrayList<RanksComparator>> movies = new HashMap<String, ArrayList<RanksComparator>>();
-
-				List<ArtifactComparator> mvs = new ArrayList<Main.ArtifactComparator>();
-
-				HashMap<String, List<ArtifactComparator>> mv = new HashMap<String, List<ArtifactComparator>>();
 
 				int[][] overlap = new int[4][4];
 
@@ -75,153 +71,108 @@ public class Main {
 							ParallelSubtitlesReader.class, tsd, ParallelSubtitlesReader.DATA_DIRECTORY_PARAM,
 							"src/dependencies/subtitles-collection/data");
 
-					// different instances (cmn, jpn)
+					// chinese annotator instance
+					AnalysisEngineDescription kanji = AnalysisEngineFactory.createEngineDescription(
+							KanjiAnnotatorFit.class, tsd, KanjiAnnotatorFit.PARAM_RANK_THRESHOLD, k,
+							KanjiAnnotatorFit.PARAM_CHAR_FREQ_LIST, "opensubtitles-freq-chars-cmn.tsv",
+							KanjiAnnotatorFit.PARAM_TOKEN_FREQ_LIST, "opensubtitles-freq-tokens-cmn.tsv",
+							KanjiAnnotatorFit.PARAM_LANGUAGE, "cmn", KanjiAnnotatorFit.PARAM_GREEDY_COMPOUNT_SIZE,
+							compoundSize);
 
-					for (String l : languages) {
+					// chinese annotator instance
+					AnalysisEngineDescription hanze = AnalysisEngineFactory.createEngineDescription(
+							KanjiAnnotatorFit.class, tsd, KanjiAnnotatorFit.PARAM_RANK_THRESHOLD, m,
+							KanjiAnnotatorFit.PARAM_CHAR_FREQ_LIST, "opensubtitles-freq-chars-jpn.tsv",
+							KanjiAnnotatorFit.PARAM_TOKEN_FREQ_LIST, "opensubtitles-freq-tokens-jpn.tsv",
+							KanjiAnnotatorFit.PARAM_LANGUAGE, "jpn", KanjiAnnotatorFit.PARAM_GREEDY_COMPOUNT_SIZE,
+							compoundSize);
+
+					Iterator<JCas> iterJCAS = SimplePipeline.iteratePipeline(reader, kanji, hanze).iterator();
+					
+					
+					//try with a list
+					ArrayList<List<String>> cmnCompounds = new ArrayList<List<String>>();
+					ArrayList<List<String>> jpnCompounds = new ArrayList<List<String>>(); 
+
+					int movieNumber = 0;
+					
+					// iterate over jcas'
+					while (iterJCAS.hasNext()) {
+
+						JCas jcas = iterJCAS.next();
 						
-						int threshold = 0;
-						if(l.equals("cmn")){
-							threshold = m;
-						}else{
-							threshold = k;
-						}
+						for (String l : languages) {
 
-						System.out.println(l + " " + threshold);
-
-						// chinese annotator instance
-						AnalysisEngineDescription kanji = AnalysisEngineFactory.createEngineDescription(
-								KanjiAnnotatorFit.class, tsd, KanjiAnnotatorFit.PARAM_RANK_THRESHOLD, threshold,
-								KanjiAnnotatorFit.PARAM_CHAR_FREQ_LIST, "opensubtitles-freq-chars-" + l + ".tsv",
-								KanjiAnnotatorFit.PARAM_TOKEN_FREQ_LIST, "opensubtitles-freq-tokens-" + l + ".tsv",
-								KanjiAnnotatorFit.PARAM_LANGUAGE, l, KanjiAnnotatorFit.PARAM_GREEDY_COMPOUNT_SIZE,
-								compoundSize);
-
-						Iterator<JCas> iterCMN = SimplePipeline.iteratePipeline(reader, kanji).iterator();
-
-						int i = 0;
-						Language language = new Language(l);
-
-						// iterate over jcas'
-						while (iterCMN.hasNext()) {
 							// movie seperation
-							String movie = "Movie: " + i;
-
-							// check wheter there is a data for this movie
-							ArrayList<RanksComparator> ranks;
-							if (movies.keySet().contains(movie)) {
-								ranks = movies.get(movie);
-							} else {
-								ranks = new ArrayList<Main.RanksComparator>();
-							}
+							String movieName = "Movie: " + movieNumber;
 
 							// get the jcas view
-							JCas jcas = iterCMN.next().getView(l);
+							JCas view = jcas.getView(l);
 
 							// get all the compounds for a jcas
-							List<Compound> compounds = getCompounds(jcas);
-
-							// create comparator
-							ArtifactComparator mc = new Main().new ArtifactComparator(movie, language, compounds);
-							mvs.add(mc);
-							if (mv.keySet().contains(l)) {
-								mv.get(l).add(mc);
-							} else {
-								ArrayList<ArtifactComparator> tmp = new ArrayList<Main.ArtifactComparator>();
-								tmp.add(mc);
-								mv.put(l, tmp);
+							List<Compound> compounds = getCompounds(view);
+							
+							if(l.equals(languages[0])){
+								//extract the covered compounds
+								cmnCompounds.add(getCoveredTextsFromCompounds(compounds));
+								
+							}else if(l.equals(languages[1])){
+								//extract the covered compounds
+								jpnCompounds.add(getCoveredTextsFromCompounds(compounds));
+								
 							}
-
-							// compute ranks
-							ranks = getRanks(ranks, jcas, language);
-
-							movies.put(movie, ranks);
-
-							// increment movie number
-							i++;
 						}
+						
+						// increment movie number
+						movieNumber++;
 					}
-
-					// all artifacts were processed
-
-					// // hardcoded test
-					// List<ArtifactComparator> cmnList = mv.get("cmn");
-					// List<ArtifactComparator> jpnList = mv.get("jpn");
-					// ArtifactComparator a1 = null;
-					// ArtifactComparator a2 = null;
-					// for (ArtifactComparator ac : cmnList) {
-					// System.out.println(ac.getArtifactName());
-					// if (ac.getArtifactName().trim().equals("Movie: 0")) {
-					// a1 = ac;
-					// }
-					// }
-					// for (ArtifactComparator ac : jpnList) {
-					// if (ac.getArtifactName().trim().equals("Movie: 0")) {
-					// a2 = ac;
-					// }
-					// }
-					// System.out.println("===============================================");
-					// if (a1 != null && a2 != null) {
-					// System.out.println("Getting N most frequent shared
-					// Kanjies...");
-					// List<Compound> result =
-					// a1.getNMostFrequentSharedKanjis(10,
-					// a2);
-					// for (Compound c : result) {
-					// System.out.println(c.getCoveredText() + " -> " +
-					// c.getRank());
-					// }
-					// }
-					// System.out.println("End of N most frequent shared
-					// Kanjies...");
-					// System.out.println("===============================================");
-
 					
-					//filling the matrix
-					List<ArtifactComparator> l1 = mv.get(languages[0]);
-					List<ArtifactComparator> l2 = mv.get(languages[1]);
+					
+					//fill the matrix
+					for(int i = 0; i < cmnCompounds.size(); i++){
+						
+						List<String> cmnList = cmnCompounds.get(i);
+						List<String> jpnList = null;
+						
+						for(int j = 0; j < jpnCompounds.size(); j++){
+							
+							jpnList = jpnCompounds.get(j);
+							
+							int shared = getSharedKanjiCount(cmnList, jpnList);
 
-					for (int i = 0; i < l1.size(); i++) {
-						ArtifactComparator ac = l1.get(i);
-
-						for (int j = 0; j < l2.size(); j++) {
-							ArtifactComparator acComp = l2.get(j);
-
-							int sharedKanji = ac.getSharedKanjiCount(acComp);
-
-							System.out.println(i + " " + j);
-							if (i < overlap.length && j < overlap[i].length) {
-
-								int overlapValue = overlap[i][j];
-								if (overlapValue == 0) {
-									overlap[i][j] = sharedKanji;
-								}
-							}
-
-							System.out.println(ac.getArtifactName() + "/" + acComp.getArtifactName() + "("
-									+ ac.getLanguage().getFullLanguage() + "/" + acComp.getLanguage().getFullLanguage()
-									+ ")" + " has " + sharedKanji + " shared Kanji's");
+							overlap[i][j] = shared;
 						}
-
 					}
-					// }
-
-					for (int[] row : overlap) {
-						for (int col : row) {
-							System.out.print(col + " | ");
+					
+					
+					//print the table
+					for(int i = 0; i < overlap.length; i++){
+						int[] row = overlap[i];
+						for(int j = 0; j < row.length; j++){
+							int cell = row[j];
+							System.out.print(cell + " | ");
 						}
 						System.out.println();
-						System.out.println("----------------------------");
+						System.out.println("-----------------------------------");
 						System.out.println();
 					}
-					System.out.println();
-					System.out.println();
+					// all artifacts were processed
+					
+					
+					 // hardcoded test
+					if(k == 0 && m == 0){
+						List<String> mv1 = cmnCompounds.get(0);
+						List<String> mv2 = jpnCompounds.get(0);
+						List<Word> test = getSortedSharedKanjis(mv1, mv2, 10);
+						for(Word w : test){
+							System.out.println(w.getCompound() + " overlap -> " + w.getFrequency());
+						}
+					}
+					
 
-					ArrayList<Integer> summedRows = getSummedRows(overlap);
-					ArrayList<Integer> summedCols = getSummedCols(overlap);
-					int sum = getMatrixSum(overlap);
+					int[][] expectedMatrix = getExpectedValuesForMatrix(overlap);
 
-					int[][] expectedMatrix = getExpectedValuesForMatrix(summedRows, summedCols, sum);
-
+					// print the expected matrix
 					for (int[] row : expectedMatrix) {
 						for (int col : row) {
 							System.out.print(col + " | ");
@@ -231,8 +182,12 @@ public class Main {
 						System.out.println();
 					}
 
+
+					// calculate result
 					int magicalShi = getMagicalShi(overlap, expectedMatrix);
-					if(magicalShi > totalResult){
+					
+					//safe if result is better then previous one
+					if (magicalShi > totalResult) {
 						totalResult = magicalShi;
 						thresholdK = k;
 						thresholdM = m;
@@ -249,12 +204,13 @@ public class Main {
 
 			}
 		}
-		
+
 		System.out.println();
 		System.out.println("total Result: " + totalResult);
-		System.out.println("best k: " + thresholdK);
-		System.out.println("best m: " + thresholdM);
+		System.out.println("best jpn threshold: " + thresholdK);
+		System.out.println("best cmn threshold: " + thresholdM);
 	}
+	
 
 	/**
 	 * get all compounds for a specific jcas
@@ -269,9 +225,89 @@ public class Main {
 		for (Compound compound : JCasUtil.select(jcas, Compound.class)) {
 			rval.add(compound);
 		}
-
 		return rval;
 	}
+	
+	
+	public static List<String> getCoveredTextsFromCompounds(List<Compound> compounds){
+		List<String> rval = new ArrayList<String>();
+		
+		for(Compound c : compounds){
+			rval.add(c.getCoveredText());
+		}
+		return rval;
+	}
+	
+	
+	public static int getSharedKanjiCount(List<String> comps, List<String> compsCompare) {
+		int rval = 0;
+
+		HashSet<String> singletons = new HashSet<String>();
+
+		for (String s : comps) {
+			singletons.add(s);
+		}
+
+		for (String s : singletons) {
+
+			// get number of occurances in first movie
+			int compsAmount = 0;
+			for (String w : comps) {
+				if (w.equals(s)) {
+					compsAmount++;
+				}
+			}
+
+			// get number of occurances in the second movie
+			int compsCompareAmount = 0;
+			for (String w : compsCompare) {
+				if (w.equals(s)) {
+					compsCompareAmount++;
+				}
+			}
+			rval += Math.min(compsAmount, compsCompareAmount);
+		}
+		return rval;
+	}
+	
+	
+	public static List<Word> getSortedSharedKanjis(List<String> comps, List<String> compsCompare, int n) {
+		
+		List<Word> rval = new ArrayList<Word>();
+		
+		HashSet<String> singletons = new HashSet<String>();
+
+		for (String s : comps) {
+			singletons.add(s);
+		}
+		
+		for (String s : singletons) {
+
+			// get number of occurances in first movie
+			int compsAmount = 0;
+			for (String w : comps) {
+				if (w.equals(s)) {
+					compsAmount++;
+				}
+			}
+
+			// get number of occurances in the second movie
+			int compsCompareAmount = 0;
+			for (String w : compsCompare) {
+				if (w.equals(s)) {
+					compsCompareAmount++;
+				}
+			}
+			int overlap = Math.min(compsAmount, compsCompareAmount);
+			rval.add(new Word(s, overlap));
+		}
+		
+		Collections.sort(rval);
+		Collections.reverse(rval);
+		
+		return rval;
+	}
+
 
 	public static ArrayList<Integer> getSummedRows(int[][] matrix) {
 		ArrayList<Integer> rval = new ArrayList<Integer>();
@@ -300,7 +336,6 @@ public class Main {
 		for (int i : colSums) {
 			rval.add(i);
 		}
-
 		return rval;
 	}
 
@@ -312,7 +347,6 @@ public class Main {
 				sum += col;
 			}
 		}
-
 		return sum;
 	}
 
@@ -335,24 +369,26 @@ public class Main {
 		return rval;
 	}
 
-	public static int[][] getExpectedValuesForMatrix(List<Integer> summedRows, List<Integer> summedCols,
-			int matrixSum) {
-		int[][] rval = new int[summedRows.size()][summedCols.size()];
 
-		for (int i = 0; i < rval.length; i++) {
-			int summedRow = summedRows.get(i);
-			for (int j = 0; j < rval[i].length; j++) {
-				int summedCol = summedCols.get(j);
-
-				rval[i][j] = (summedRow * summedCol) / matrixSum;
+	public static int getMagicalShi(int[][] matrix, int[][] expectedMatrix) {
+		
+		//from expected matrix
+		int diagonalSum = 0;
+		int nonDiagonalSum = 0;
+		
+		for(int i = 0; i < expectedMatrix.length; i++){
+			int[] row = expectedMatrix[i];
+			for(int j = 0; j < row.length; j++){
+				if(i==j){
+					diagonalSum += expectedMatrix[i][j];
+				}else{
+					nonDiagonalSum += expectedMatrix[i][j];
+				}
 			}
 		}
 
-		return rval;
-	}
-
-	public static int getMagicalShi(int[][] matrix, int[][] expectedMatrix) {
-
+		if(diagonalSum == 0 || nonDiagonalSum == 0) return 0;
+		
 		ArrayList<Integer> diagonal = new ArrayList<Integer>();
 		ArrayList<Integer> notDiagonal = new ArrayList<Integer>();
 
@@ -363,353 +399,38 @@ public class Main {
 				// diagonal
 				if (i == j) {
 					int diff = matrix[i][j] - expectedMatrix[i][j];
-					diagonal.add(diff * diff);
+					diagonal.add(diff);
 
 					// not diagonal
 				} else {
 					int diff = matrix[i][j] - expectedMatrix[i][j];
-					notDiagonal.add(diff * diff);
+					notDiagonal.add(diff);
 				}
 			}
 		}
+		
+		
+		
 
 		// sum diagonals
 		int d = 0;
 		for (int i : diagonal) {
 			d += i;
 		}
-		d = d / diagonal.size();
+		d = d * d;
+		d = d / diagonalSum;
 
 		// sum not diagonals
 		int notD = 0;
 		for (int i : notDiagonal) {
 			notD += i;
 		}
-		notD = notD / notDiagonal.size();
+		notD = notD * notD;
+		notD = notD / nonDiagonalSum;
 
 		System.out.println("diagonal sum: " + d);
 		System.out.println("non-diagonal sum: " + notD);
 
 		return d + notD;
 	}
-
-	/**
-	 * helper for computing ranks
-	 * 
-	 * @param ranks
-	 * @param jcas
-	 * @return
-	 */
-	public static ArrayList<RanksComparator> getRanks(ArrayList<RanksComparator> ranks, JCas jcas, Language l) {
-
-		// iterate over annotations
-		for (Compound compound : JCasUtil.select(jcas, Compound.class)) {
-
-			int rank = compound.getRank();
-			String token = compound.getCoveredText();
-
-			boolean containsCompound = false;
-			for (RanksComparator rc : ranks) {
-				if (rc.getCompound().equals(token)) {
-					// add the ranks
-					if (!rc.getLanguageRanks().containsKey(l)) {
-						rc.getLanguageRanks().put(l, rank);
-					}
-					// set flag
-					containsCompound = true;
-					break;
-				}
-			}
-
-			if (!containsCompound) {
-				HashMap<Language, Integer> map = new HashMap<Language, Integer>();
-				map.put(l, rank);
-
-				RanksComparator rc = new Main().new RanksComparator(token, map);
-				ranks.add(rc);
-			}
-
-		}
-
-		return ranks;
-	}
-
-	private class RanksComparator {
-
-		private String compound;
-		private HashMap<Language, Integer> languageRanks;
-
-		public RanksComparator(String compound, HashMap<Language, Integer> languageRanks) {
-			super();
-			this.compound = compound;
-			this.languageRanks = languageRanks;
-		}
-
-		public String getCompound() {
-			return compound;
-		}
-
-		public void setCompound(String compound) {
-			this.compound = compound;
-		}
-
-		public HashMap<Language, Integer> getLanguageRanks() {
-			return languageRanks;
-		}
-
-		public void setLanguageRanks(HashMap<Language, Integer> languageRanks) {
-			this.languageRanks = languageRanks;
-		}
-
-		@Override
-		public String toString() {
-			return "RanksComparator [compound=" + compound + ", languageRanks=" + languageRanks + "]";
-		}
-	}
-
-	private class ArtifactComparator {
-
-		private String artifactName;
-		private Language language;
-		private List<Compound> compounds;
-
-		public ArtifactComparator(String artifactName, Language language, List<Compound> compounds) {
-			super();
-			this.artifactName = artifactName;
-			this.language = language;
-			this.compounds = compounds;
-		}
-
-		public int getSharedKanjiCountOLD(ArtifactComparator mc) {
-			int rval = 0;
-
-			List<Compound> comps = this.compounds;
-			List<Compound> compsCompare = mc.getCompounds();
-
-			// System.out.println(comps.size() + " : " + compsCompare.size());
-
-			for (int i = 0; i < comps.size(); i++) {
-				String s1 = comps.get(i).getCoveredText();
-				String s2 = "";
-				if (i < compsCompare.size()) {
-					s2 = compsCompare.get(i).getCoveredText();
-				}
-				if (s1.equals(s2))
-					rval++;
-			}
-
-			return rval;
-		}
-
-		public int getSharedKanjiCount(ArtifactComparator mc) {
-			int rval = 0;
-
-			List<Compound> comps = this.compounds;
-			List<Compound> compsCompare = mc.getCompounds();
-
-			// System.out.println("number of compounds " + comps.size());
-
-			HashSet<String> hs = new HashSet<String>();
-
-			// this collection
-			for (Compound c1 : comps) {
-
-				String s1 = c1.getCoveredText();
-				// if (!hs.contains(s1)) {
-
-				boolean shared = false;
-
-				// collection to compare to
-				for (Compound c2 : compsCompare) {
-
-					String s2 = c2.getCoveredText();
-					if (s1.equals(s2))
-						shared = true;
-
-				}
-
-				// if a compound from one collection appears in the other
-				// collection
-				if (shared) {
-					rval++;
-				}
-
-				hs.add(s1);
-			}
-			// }
-			return rval;
-		}
-
-		public List<Compound> getNMostFrequentSharedKanjis(int n, ArtifactComparator mc) {
-			ArrayList<Compound> rval = new ArrayList<Compound>();
-
-			List<Compound> comps = this.compounds;
-			List<Compound> compsCompare = mc.getCompounds();
-
-			if (n > comps.size() || n > compsCompare.size())
-				return new ArrayList<Compound>();
-
-			HashSet<Compound> tmp = new HashSet<Compound>();
-
-			// this collection
-			for (Compound c1 : comps) {
-
-				String s1 = c1.getCoveredText();
-				// if (!hs.contains(s1)) {
-
-				boolean shared = false;
-
-				// collection to compare to
-				for (Compound c2 : compsCompare) {
-
-					String s2 = c2.getCoveredText();
-					if (s1.equals(s2)) {
-						shared = true;
-					}
-
-				}
-
-				// if a compound from one collection appears in the other
-				// collection
-				if (shared) {
-					boolean add = true;
-					for (Compound c : tmp) {
-						if (c.getCoveredText().trim().equals(s1)) {
-							add = false;
-						}
-					}
-					if (add) {
-						tmp.add(c1);
-					}
-				}
-			}
-
-			// naive sorting/picking
-			Compound highestRank = null;
-			for (int i = 0; i < n; i++) {
-				Compound del = null;
-				for (Compound c : tmp) {
-					if (highestRank == null) {
-						highestRank = c;
-					}
-					if (c.getRank() > highestRank.getRank()) {
-						highestRank = c;
-						del = c;
-					}
-				}
-				rval.add(highestRank);
-				tmp.remove(del);
-				highestRank = null;
-			}
-			return rval;
-		}
-
-		public String getArtifactName() {
-			return artifactName;
-		}
-
-		public void setArtifactName(String movie) {
-			this.artifactName = movie;
-		}
-
-		public Language getLanguage() {
-			return language;
-		}
-
-		public void setLanguage(Language language) {
-			this.language = language;
-		}
-
-		public List<Compound> getCompounds() {
-			return compounds;
-		}
-
-		public void setCompounds(List<Compound> compounds) {
-			this.compounds = compounds;
-		}
-
-		@Override
-		public String toString() {
-			return "MovieComparator [movie=" + artifactName + ", language=" + language + ", compounds=" + compounds
-					+ "]";
-		}
-
-		/**
-		 * not regarding the outer enclosing type
-		 * 
-		 * comparing only on artifact instance
-		 */
-		public boolean equalsMovie(Object obj) {
-			if (this == obj)
-				return true;
-			if (obj == null)
-				return false;
-			if (getClass() != obj.getClass())
-				return false;
-			ArtifactComparator other = (ArtifactComparator) obj;
-
-			if (artifactName == null) {
-				if (other.artifactName != null)
-					return false;
-			} else if (!artifactName.equals(other.artifactName))
-				return false;
-			return true;
-		}
-
-		/**
-		 * not regarding the outer enclosing type
-		 * 
-		 * comparing only on language instance
-		 */
-		public boolean equalsLanguage(Object obj) {
-			if (this == obj)
-				return true;
-			if (obj == null)
-				return false;
-			if (getClass() != obj.getClass())
-				return false;
-			ArtifactComparator other = (ArtifactComparator) obj;
-
-			if (language == null) {
-				if (other.language != null)
-					return false;
-			} else if (!language.getFullLanguage().equals(other.language.getFullLanguage()))
-				return false;
-			return true;
-		}
-
-		/**
-		 * not regarding the outer enclosing type
-		 * 
-		 */
-		@Override
-		public boolean equals(Object obj) {
-			if (this == obj)
-				return true;
-			if (obj == null)
-				return false;
-			if (getClass() != obj.getClass())
-				return false;
-			ArtifactComparator other = (ArtifactComparator) obj;
-
-			if (artifactName == null) {
-				if (other.artifactName != null)
-					return false;
-			} else if (!artifactName.equals(other.artifactName))
-				return false;
-			if (compounds == null) {
-				if (other.compounds != null)
-					return false;
-			} else if (!compounds.equals(other.compounds))
-				return false;
-			if (language == null) {
-				if (other.language != null)
-					return false;
-			} else if (!language.getFullLanguage().equals(other.language.getFullLanguage()))
-				return false;
-			return true;
-		}
-
-	}
-
 }
