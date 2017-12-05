@@ -161,8 +161,8 @@ public class Main {
 					
 					 // hardcoded test
 					if(k == 0 && m == 0){
-						List<String> mv1 = cmnCompounds.get(0);
-						List<String> mv2 = jpnCompounds.get(0);
+						List<String> mv1 = cmnCompounds.get(3);
+						List<String> mv2 = jpnCompounds.get(3);
 						List<Word> test = getSortedSharedKanjis(mv1, mv2, 10);
 						for(Word w : test){
 							System.out.println(w.getCompound() + " overlap -> " + w.getFrequency());

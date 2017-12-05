@@ -65,7 +65,6 @@ public class KanjiAnnotatorFit extends JCasAnnotator_ImplBase {
 				
 				String compound = text.substring(i, end);
 
-				if (!compound.trim().equals("")) {
 					FrequencyDictionaryEntry entry = null;
 					//depending on whether it is a singleton or a compound
 					if(compoundSize == 1){
@@ -74,7 +73,7 @@ public class KanjiAnnotatorFit extends JCasAnnotator_ImplBase {
 						entry = freqDict.compoundLookup(compound);
 					}
 					
-					if (!(entry == null) && entry.rank >= threshold) {
+					if (entry != null && entry.rank >= threshold) {
 						
 						Compound c = new Compound(jcas);
 						c.setBegin(i);
@@ -86,7 +85,6 @@ public class KanjiAnnotatorFit extends JCasAnnotator_ImplBase {
 						i += compoundSize-1;
 					}
 				}
-			}
 
 		} catch (CASException e) {
 			// TODO Auto-generated catch block
